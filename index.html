@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#eaf6fd">
+<title>Freshness Console — Food Spoilage Monitor</title>
+<style>
+
+  :root{
+    /* Palette: ice blue (dominant) · white · sky blue · deep blue */
+    --white:   #ffffff;
+    --ice:     #eaf6fd;
+    --ice-2:   #d9eefa;
+    --ice-3:   #c4e3f5;
+    --sky:     #5db8ee;
+    --sky-soft:#9fd3f3;
+    --deep:    #0c3b73;
+    --deep-2:  #1b5496;
+    --muted:   #5a7fa3;
+
+    /* Status colours are functional only (kept distinct so meaning stays clear) */
+    --fresh:   #1fae8f;
+    --caution: #f0a02e;
+    --spoiled: #e0506a;
+
+    --shadow:  0 10px 30px rgba(12,59,115,.10);
+    --shadow-lg: 0 16px 40px rgba(12,59,115,.18);
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; min-height:100vh; color: var(--deep); font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; }
+  body{
+    background:
+      radial-gradient(900px 520px at 8% -10%, #ffffff 0%, rgba(255,255,255,0) 62%),
+      radial-gradient(760px 520px at 100% 0%, #cde8f8 0%, rgba(205,232,248,0) 62%),
+      radial-gradient(900px 640px at 50% 120%, #bfe0f4 0%, rgba(191,224,244,0) 62%),
+      var(--ice);
+    background-attachment: fixed;
+  }
+
+  /* ---------- Decorative falling snowflakes ---------- */
+  .flakes{ position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+  .flake{ position:absolute; top:-10%; color: var(--sky-soft); animation: fall linear infinite; }
+  @keyframes fall{ to{ transform: translateY(118vh) rotate(360deg); } }
+
+  .wrap{ position:relative; z-index:1; max-width: 920px; margin: 0 auto; padding: 30px 20px 70px; }
+
+  /* ---------- Screens ---------- */
+  .screen{ display:none; }
+  .screen.active{ display:block; animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rise{ from{ opacity:0; transform: translateY(14px); } to{ opacity:1; transform:none; } }
+
+  /* ---------- Type ---------- */
+  h1{ font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-weight:700; font-size: clamp(30px, 6vw, 44px); line-height:1.05; margin: 12px 0 8px; letter-spacing:-.02em; }
+  h2.section-title{ font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-weight:700; font-size: clamp(26px, 5vw, 34px); margin: 0 0 8px; letter-spacing:-.01em; }
+  .lede, p.section-sub{ font-size: 15px; line-height:1.6; color: var(--muted); margin: 0 0 26px; max-width: 560px; }
+  .chip{
+    display:inline-flex; align-items:center; gap:8px; font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:12px; letter-spacing:.04em;
+    background: var(--white); color: var(--deep-2); border:1px solid var(--ice-3); border-radius:999px; padding:7px 14px;
+  }
+
+  /* ---------- Back button (larger) ---------- */
+  .back-link{
+    font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-size: 20px; font-weight:600; color: var(--deep);
+    background: var(--white); border:1px solid var(--ice-3); border-radius:999px;
+    padding: 11px 24px 11px 16px; cursor:pointer; display:inline-flex; align-items:center; gap:10px;
+    box-shadow: 0 6px 18px rgba(12,59,115,.08); margin-bottom: 26px;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .back-link .arrow{ font-size: 22px; line-height:1; color: var(--sky); transition: transform .15s ease; }
+  .back-link:hover{ transform: translateY(-2px); border-color: var(--sky); box-shadow: var(--shadow); }
+  .back-link:hover .arrow{ transform: translateX(-3px); }
+
+  /* ---------- Choice cards ---------- */
+  .card-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 700px){ .card-grid{ grid-template-columns: repeat(2, 1fr); } }
+  .card-grid.category{ grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 520px){ .card-grid.category{ grid-template-columns: 1fr; } }
+  [hidden]{ display:none !important; }
+
+  .choice-card{
+    background: var(--white); border:1px solid var(--ice-3); border-radius: 22px;
+    padding: 24px 20px; cursor:pointer; text-align:left; color: var(--deep); font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    box-shadow: 0 6px 18px rgba(12,59,115,.06);
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+  .choice-card:hover{ transform: translateY(-5px); border-color: var(--sky); box-shadow: var(--shadow-lg); }
+  .choice-card:active{ transform: translateY(-1px) scale(.99); }
+  .choice-card .icon{
+    display:flex; align-items:center; justify-content:center; width:56px; height:56px; border-radius:50%;
+    background: var(--ice-2); font-size: 28px; margin-bottom: 14px;
+  }
+  .choice-card .name{ display:block; font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-weight:600; font-size: 19px; }
+  .choice-card .desc{ display:block; font-size: 13px; color: var(--muted); margin-top: 6px; line-height:1.5; }
+
+  /* Custom card sits at the bottom, full width */
+  .choice-card.custom{
+    grid-column: 1 / -1; display:flex; align-items:center; gap:16px;
+    border-style: dashed; border-color: var(--sky); background: rgba(255,255,255,.65);
+  }
+  .choice-card.custom .icon{ margin:0; background: var(--white); }
+  .choice-card.custom .name{ color: var(--deep-2); }
+
+  /* Foods the user recorded themselves */
+  .card-wrap{ position:relative; display:flex; }
+  .card-wrap .choice-card{ flex:1; }
+  .card-del{
+    position:absolute; top:12px; right:12px; width:30px; height:30px; border-radius:50%;
+    border:1px solid var(--ice-3); background: var(--white); color: var(--muted); cursor:pointer; font-size:17px; line-height:1; padding:0;
+  }
+  .card-del:hover{ color: var(--spoiled); border-color: var(--spoiled); }
+  .badge{ display:inline-block; margin-top:10px; font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:11px; padding:4px 10px; border-radius:999px; }
+  .badge.ok{ background:#dcf5ee; color:#117a63; }
+  .badge.todo{ background:#fff0d6; color:#a2640a; }
+  .choice-card.record{
+    grid-column: 1 / -1; display:flex; align-items:center; gap:16px;
+    border-style: dashed; border-color: var(--deep-2); background: var(--white);
+  }
+  .choice-card.record .icon{ margin:0; background: var(--deep); color: var(--white); font-size:30px; }
+  .choice-card.record .name{ color: var(--deep); }
+
+  /* ---------- Recorder ---------- */
+  .rec-label{ display:block; font-size:13px; font-weight:600; margin-bottom:8px; color: var(--deep-2); }
+  .rec-name{
+    width:100%; font:inherit; font-size:17px; padding:13px 16px; border-radius:14px;
+    border:1px solid var(--ice-3); background: var(--white); color: var(--deep);
+  }
+  .rec-name:focus{ outline:2px solid var(--sky); outline-offset:1px; }
+  .rec-name:disabled{ background: var(--ice); color: var(--muted); }
+  .stepper{ display:flex; gap:10px; margin: 22px 0 4px; flex-wrap:wrap; }
+  .step-pill{
+    flex:1; min-width:140px; padding:12px 16px; border-radius:16px; border:1px solid var(--ice-3);
+    background: var(--ice); color: var(--muted); font-weight:600; font-size:14px; display:flex; gap:10px; align-items:center;
+  }
+  .step-pill .num{
+    width:26px; height:26px; border-radius:50%; background: var(--white); border:1px solid var(--ice-3);
+    display:inline-flex; align-items:center; justify-content:center; font-size:13px;
+  }
+  .step-pill.current{ background: var(--white); border-color: var(--sky); color: var(--deep); box-shadow: 0 6px 16px rgba(12,59,115,.08); }
+  .step-pill.current .num{ background: var(--deep); color: var(--white); border-color: var(--deep); }
+  .step-pill.done{ background:#dcf5ee; border-color:#9adfcd; color:#117a63; }
+  .step-pill.done .num{ background: var(--fresh); color: var(--white); border-color: var(--fresh); }
+  .rec-help{ font-size:14px; line-height:1.65; color: var(--muted); margin: 14px 0 18px; }
+  .rec-sub{ font-size:12px; letter-spacing:.08em; text-transform:uppercase; color: var(--deep-2); margin: 18px 0 8px; font-weight:600; }
+  .rec-live{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; }
+  @media (max-width: 640px){ .rec-live{ grid-template-columns: repeat(2, 1fr); } }
+  .rec-tile{ background: var(--ice); border:1px solid var(--ice-3); border-radius:14px; padding:12px 14px; }
+  .rec-tile .k{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color: var(--muted); }
+  .rec-tile .v{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:20px; margin-top:4px; color: var(--deep); }
+  .rec-tile .v small{ font-size:11px; color: var(--muted); margin-left:3px; }
+  .progress{ height:10px; background: var(--ice-2); border-radius:999px; overflow:hidden; margin: 18px 0 6px; }
+  .progress > i{ display:block; height:100%; width:0; background: linear-gradient(90deg, var(--sky), var(--deep-2)); transition: width .4s ease; }
+  .rec-msg{ font-size:13.5px; line-height:1.6; margin: 10px 0 0; color: var(--muted); min-height:4px; }
+  .rec-msg.err{ color: var(--spoiled); }
+  .rec-msg.ok{ color:#117a63; }
+  .rec-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+  .btn-primary:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
+  .pre{ white-space: pre-line; }
+
+  /* ---------- Console header ---------- */
+  .console-topbar{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom: 20px; }
+  .food-badge{
+    display:inline-flex; align-items:center; gap:8px; font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:12px;
+    background: var(--deep); color: var(--white); border-radius:999px; padding:7px 15px; margin-top: 6px;
+  }
+  .status-line{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:12px; color: var(--muted); margin-top: 10px; min-height:16px; }
+
+  .actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .btn{
+    font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-size:15px; font-weight:600; border-radius:999px; padding:12px 22px; cursor:pointer;
+    border:1px solid transparent; transition: transform .15s ease, box-shadow .15s ease, background .2s ease;
+  }
+  .btn:hover{ transform: translateY(-2px); }
+  .btn-primary{ background: linear-gradient(135deg, var(--deep-2), var(--deep)); color: var(--white); box-shadow: 0 8px 20px rgba(12,59,115,.25); }
+  .btn-primary.connected{ background: var(--white); color: var(--deep); border-color: var(--sky); box-shadow: none; }
+  .btn-primary.error{ background: var(--spoiled); }
+  .btn-ghost{ background: var(--white); color: var(--deep); border-color: var(--ice-3); }
+  .btn-ghost.on{ border-color: var(--sky); background: var(--ice-2); }
+  .btn-ghost:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+  .alert-hint{ font-size:12px; color: var(--muted); margin-top: 10px; max-width: 420px; line-height:1.5; text-align:right; }
+  .alert-hint button{ background:none; border:none; padding:0; color: var(--deep-2); font: inherit; text-decoration: underline; cursor:pointer; }
+  @media (max-width: 700px){ .alert-hint{ text-align:left; } }
+
+  /* ---------- Console panel ---------- */
+  .console{
+    background: rgba(255,255,255,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border:1px solid var(--ice-3); border-radius: 26px; padding: 28px;
+    display:grid; grid-template-columns: 250px 1fr; gap: 30px; align-items:center; box-shadow: var(--shadow);
+  }
+  @media (max-width: 760px){ .console{ grid-template-columns: 1fr; } }
+
+  .dial-wrap{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  #gaugeStatus{ font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-weight:700; font-size: 20px; letter-spacing:.02em; }
+  #scoreNum{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:12px; color: var(--muted); }
+
+  .metrics{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  @media (max-width: 520px){ .metrics{ grid-template-columns: 1fr; } }
+  .metric{ background: var(--ice); border:1px solid var(--ice-3); border-radius: 18px; padding: 16px 18px; }
+  .metric .label{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color: var(--deep-2); }
+  .metric .value{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:28px; font-weight:500; margin-top:6px; color: var(--deep); }
+  .metric .unit{ font-size:13px; color: var(--muted); margin-left:4px; }
+  .metric .ref{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:11px; color: var(--muted); margin-top:4px; min-height:14px; }
+  .metric .def{ font-size:12.5px; line-height:1.5; color: var(--muted); margin: 10px 0 0; padding-top:10px; border-top:1px dashed var(--ice-3); }
+
+  /* ---------- History + log ---------- */
+  .panel{
+    margin-top: 22px; background: rgba(255,255,255,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border:1px solid var(--ice-3); border-radius: 22px; padding: 22px 26px; box-shadow: var(--shadow);
+  }
+  .panel h2{ font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-size:17px; font-weight:600; margin:0 0 12px; color: var(--deep); }
+  #sparkline{ width:100%; height:100px; display:block; }
+  #logBody{ font-family:ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', Menlo, monospace; font-size:12px; max-height:230px; overflow-y:auto; }
+  .log-row{ display:grid; grid-template-columns: 82px 1fr auto; gap:10px; padding:8px 0; border-bottom:1px solid var(--ice-2); color: var(--muted); }
+  .log-row .tag{ font-weight:500; text-align:right; }
+  .tag.fresh{ color: var(--fresh); } .tag.caution{ color: #c47d12; } .tag.spoiled{ color: var(--spoiled); }
+
+  .note{ font-size:12px; color: var(--muted); margin-top: 22px; line-height:1.7; }
+  .note code{ background: rgba(255,255,255,.8); padding:1px 6px; border-radius:6px; border:1px solid var(--ice-3); }
+
+  /* ---------- Sound toggle ---------- */
+  .sound-toggle{
+    position:fixed; top:16px; right:16px; z-index:50; width:46px; height:46px; border-radius:50%;
+    background: var(--white); border:1px solid var(--ice-3); box-shadow: var(--shadow); cursor:pointer; font-size:20px;
+    transition: transform .15s ease;
+  }
+  .sound-toggle:hover{ transform: scale(1.08); }
+
+  /* ---------- In-page toast ---------- */
+  .toast{
+    position:fixed; top:16px; left:50%; z-index:100; width:min(440px, calc(100% - 32px));
+    transform: translate(-50%, -160%); transition: transform .45s cubic-bezier(.2,.9,.3,1.1);
+    background: var(--white); border-radius:18px; box-shadow: var(--shadow-lg); border:1px solid var(--ice-3);
+    display:flex; gap:14px; padding:16px 18px; cursor:pointer;
+  }
+  .toast.show{ transform: translate(-50%, 0); }
+  .toast .bar{ width:6px; border-radius:6px; background: var(--sky); flex:none; }
+  .toast.caution .bar{ background: var(--caution); }
+  .toast.spoiled .bar{ background: var(--spoiled); }
+  .toast.fresh .bar{ background: var(--fresh); }
+  .toast-title{ font-family:'Avenir Next', 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, Roboto, sans-serif; font-weight:700; font-size:16px; }
+  .toast-body{ font-size:13.5px; color: var(--muted); margin-top:3px; line-height:1.5; }
+
+  @media (prefers-reduced-motion: reduce){
+    .flakes{ display:none; }
+    .screen.active{ animation:none; }
+    *{ transition-duration: 0s !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="flakes" id="flakes" aria-hidden="true"></div>
+
+<button class="sound-toggle" id="soundToggle" aria-label="Toggle sound effects" title="Sound effects">🔊</button>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <div class="bar"></div>
+  <div>
+    <div class="toast-title" id="toastTitle"></div>
+    <div class="toast-body" id="toastBody"></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= SCREEN 1: CATEGORY MENU ================= -->
+  <div class="screen active" id="screenMenu">
+    <div class="chip">❄ ESP32 · ENS160 + AHT21 · Bluetooth</div>
+    <h1>Freshness Console</h1>
+    <p class="lede">Choose what's in the container and the sensor will keep watch for signs of spoilage.</p>
+
+    <div class="card-grid category">
+      <button class="choice-card" data-sfx="select" onclick="goToList('veg')">
+        <span class="icon">🥕</span>
+        <span class="name">Vegetables</span>
+        <span class="desc">Pick from common vegetables with preset reference values.</span>
+      </button>
+      <button class="choice-card" data-sfx="select" onclick="goToList('fruit')">
+        <span class="icon">🍎</span>
+        <span class="name">Fruits</span>
+        <span class="desc">Pick from common fruits with preset reference values.</span>
+      </button>
+      <button class="choice-card" data-sfx="select" onclick="goToList('food')">
+        <span class="icon">🥛</span>
+        <span class="name">Other Foods</span>
+        <span class="desc">Milk, eggs, bread, cheese and more, with preset reference values.</span>
+      </button>
+      <button class="choice-card" data-sfx="select" onclick="selectCustom('other')">
+        <span class="icon">📦</span>
+        <span class="name">Other</span>
+        <span class="desc">Anything else. The sensor learns its own baseline first.</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= SCREEN 2: FRUIT LIST ================= -->
+  <div class="screen" id="screenFruitList">
+    <button class="back-link" data-sfx="back" onclick="goToMenu()"><span class="arrow">←</span> Back to categories</button>
+    <h2 class="section-title">Choose a fruit</h2>
+    <p class="section-sub">Presets skip the warm-up by comparing live readings to typical fresh-fruit reference values.</p>
+    <div class="card-grid" id="fruitGrid"></div>
+  </div>
+
+  <!-- ================= SCREEN 3: VEGETABLE LIST ================= -->
+  <div class="screen" id="screenVegList">
+    <button class="back-link" data-sfx="back" onclick="goToMenu()"><span class="arrow">←</span> Back to categories</button>
+    <h2 class="section-title">Choose a vegetable</h2>
+    <p class="section-sub">Presets skip the warm-up by comparing live readings to typical fresh-vegetable reference values.</p>
+    <div class="card-grid" id="vegGrid"></div>
+  </div>
+
+  <!-- ================= SCREEN: OTHER FOODS LIST ================= -->
+  <div class="screen" id="screenFoodList">
+    <button class="back-link" data-sfx="back" onclick="goToMenu()"><span class="arrow">←</span> Back to categories</button>
+    <h2 class="section-title">Choose a food</h2>
+    <p class="section-sub">Dairy, eggs, bread and other foods that aren't fruits or vegetables. These are rough starting values, so for the best accuracy record your own.</p>
+    <div class="card-grid" id="foodGrid"></div>
+  </div>
+
+  <!-- ================= SCREEN: RECORD A NEW FOOD ================= -->
+  <div class="screen" id="screenRecord">
+    <button class="back-link" data-sfx="back" onclick="leaveRecorder()"><span class="arrow">←</span> <span id="recBackLabel">Back</span></button>
+    <h2 class="section-title" id="recTitle">Record a new food</h2>
+    <p class="section-sub">Measure the food yourself at two stages, fresh and spoiled, so the console can judge it against your own readings. Record at the temperature you'll normally store it at. Saved foods stay in this browser on this device.</p>
+
+    <div class="panel" style="margin-top:0;">
+      <label class="rec-label" for="recName">Food name</label>
+      <input class="rec-name" id="recName" type="text" maxlength="30" placeholder="e.g. Mango" autocomplete="off">
+
+      <div class="stepper">
+        <div class="step-pill" id="recStep1"><span class="num" id="recStep1Num">1</span> Fresh stage</div>
+        <div class="step-pill" id="recStep2"><span class="num" id="recStep2Num">2</span> Spoiled stage</div>
+      </div>
+      <p class="rec-help" id="recHelp"></p>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="recConnectBtn" type="button">Connect to sensor</button>
+        <span class="status-line" id="recStatus" style="margin:0;">Not connected</span>
+      </div>
+
+      <div class="rec-sub">Live reading</div>
+      <div class="rec-live">
+        <div class="rec-tile"><div class="k">Temp</div><div class="v" id="rvT">—<small>°C</small></div></div>
+        <div class="rec-tile"><div class="k">Humidity</div><div class="v" id="rvH">—<small>%RH</small></div></div>
+        <div class="rec-tile"><div class="k">eCO2</div><div class="v" id="rvEco2">—<small>ppm</small></div></div>
+        <div class="rec-tile"><div class="k">TVOC</div><div class="v" id="rvTvoc">—<small>ppb</small></div></div>
+      </div>
+
+      <div id="recProgressWrap" hidden>
+        <div class="progress"><i id="recBar"></i></div>
+        <div class="rec-msg" id="recProgressText"></div>
+      </div>
+
+      <div id="recResultWrap" hidden>
+        <div class="rec-sub" id="recResultLabel"></div>
+        <div class="rec-live">
+          <div class="rec-tile"><div class="k">Temp</div><div class="v" id="rrT">—</div></div>
+          <div class="rec-tile"><div class="k">Humidity</div><div class="v" id="rrH">—</div></div>
+          <div class="rec-tile"><div class="k">eCO2</div><div class="v" id="rrEco2">—</div></div>
+          <div class="rec-tile"><div class="k">TVOC</div><div class="v" id="rrTvoc">—</div></div>
+        </div>
+      </div>
+
+      <p class="rec-msg" id="recMsg" role="status"></p>
+
+      <div class="rec-actions">
+        <button class="btn btn-primary" id="recStart" type="button" data-sfx="select">Start recording</button>
+        <button class="btn btn-ghost" id="recCancel" type="button" hidden>Cancel recording</button>
+        <button class="btn btn-primary" id="recSave" type="button" data-sfx="select" hidden>Save this stage</button>
+        <button class="btn btn-ghost" id="recRedo" type="button" hidden>Redo</button>
+        <button class="btn btn-primary" id="recNow" type="button" data-sfx="select" hidden>Record spoiled stage now</button>
+        <button class="btn btn-ghost" id="recLater" type="button" hidden>Finish later</button>
+        <button class="btn btn-primary" id="recOpen" type="button" data-sfx="select" hidden>Open in console</button>
+        <button class="btn btn-ghost" id="recDone" type="button" hidden>Back to list</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SCREEN 4: CONSOLE ================= -->
+  <div class="screen" id="screenConsole">
+    <button class="back-link" data-sfx="back" onclick="goToMenu()"><span class="arrow">←</span> Back to categories</button>
+
+    <div class="console-topbar">
+      <div>
+        <div class="chip">❄ ESP32 · ENS160 + AHT21</div>
+        <h1>Freshness Console</h1>
+        <div class="food-badge" id="foodBadge">Other · live calibration</div>
+        <div class="status-line" id="statusLine">Not connected</div>
+      </div>
+      <div>
+        <div class="actions" style="justify-content:flex-end;">
+          <button id="alertBtn" class="btn btn-ghost">🔔 Enable alerts</button>
+          <button id="connectBtn" class="btn btn-primary">Connect to sensor</button>
+        </div>
+        <div class="alert-hint"><span id="alertHint"></span> <button id="testAlertBtn" data-sfx="click">Send test alerts</button></div>
+      </div>
+    </div>
+
+    <div class="console">
+      <div class="dial-wrap">
+        <canvas id="gauge" width="240" height="150"></canvas>
+        <div id="gaugeStatus">— — —</div>
+        <div id="scoreNum">score: —</div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="label">🌡️ Temperature</div>
+          <div class="value" id="valTemp">—<span class="unit">°C</span></div>
+          <div class="ref" id="refTemp"></div>
+          <p class="def">How warm the air inside the container is. Heat speeds up bacteria and mold, so warmer food spoils faster.</p>
+        </div>
+        <div class="metric">
+          <div class="label">💧 Humidity</div>
+          <div class="value" id="valHum">—<span class="unit">%RH</span></div>
+          <div class="ref" id="refHum"></div>
+          <p class="def">The amount of moisture in the air. Too much encourages mold, and a climb can mean food is breaking down and releasing water.</p>
+        </div>
+        <div class="metric">
+          <div class="label">☁️ eCO2</div>
+          <div class="value" id="valEco2">—<span class="unit">ppm</span></div>
+          <div class="ref" id="refEco2"></div>
+          <p class="def">Estimated carbon dioxide, worked out by the sensor from the gases it detects. It rises as microbes and decaying food give off CO₂.</p>
+        </div>
+        <div class="metric">
+          <div class="label">🧪 TVOC</div>
+          <div class="value" id="valTvoc">—<span class="unit">ppb</span></div>
+          <div class="ref" id="refTvoc"></div>
+          <p class="def">Total volatile organic compounds: the smelly gases (alcohols, amines and more) released as food rots. A steady rise is a key spoilage signal.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Freshness score · last 60 readings</h2>
+      <canvas id="sparkline"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>Reading log</h2>
+      <div id="logBody"></div>
+    </div>
+
+    <div class="panel" id="myValuesPanel" hidden>
+      <h2>Your recorded values</h2>
+      <p class="rec-help pre" id="myValuesText" style="margin-top:0;"></p>
+      <div class="rec-actions" id="myValuesActions" style="margin-top:0;"></div>
+    </div>
+
+    <div class="note">
+      Uses the <b>Web Bluetooth API</b>, so open this page in Chrome or Edge (desktop or Android) directly from disk or over <code>https://</code>.
+      Make sure the ESP32 is powered and advertising as <code>FoodMonitor-ESP32</code> before connecting.
+      Alerts are sent while this page stays open and connected to the sensor.
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   FOOD PRESETS
+   Temperature / humidity: typical recommended fresh-storage
+   conditions from postharvest references (USDA / ag extension).
+   eCO2 / TVOC: approximate reference points, not lab constants
+   for this exact sensor. Tune them with your own fresh-vs-spoiled
+   logs for best results.
+   ============================================================ */
+const FRUITS = {
+  Apple:      { icon:'🍎', t: 3,  h: 92, eco2: 450, tvoc: 80  },
+  Banana:     { icon:'🍌', t: 14, h: 90, eco2: 500, tvoc: 160 },
+  Orange:     { icon:'🍊', t: 7,  h: 90, eco2: 420, tvoc: 60  },
+  Strawberry: { icon:'🍓', t: 1,  h: 92, eco2: 480, tvoc: 110 },
+  Grapes:     { icon:'🍇', t: 0,  h: 92, eco2: 430, tvoc: 70  },
+};
+const VEGETABLES = {
+  Tomato:   { icon:'🍅', t: 13, h: 90, eco2: 460, tvoc: 95 },
+  Carrot:   { icon:'🥕', t: 1,  h: 98, eco2: 410, tvoc: 45 },
+  Lettuce:  { icon:'🥬', t: 1,  h: 98, eco2: 520, tvoc: 55 },
+  Potato:   { icon:'🥔', t: 8,  h: 90, eco2: 400, tvoc: 35 },
+  Spinach:  { icon:'🌿', t: 1,  h: 97, eco2: 530, tvoc: 60 },
+  Capsicum: { icon:'🫑', t: 9,  h: 92, eco2: 430, tvoc: 50 },
+};
+
+/* Other foods: storage temperature / humidity are typical fridge or room-storage values.
+   eCO2 / TVOC are rough estimates, not measured constants. Use "Record a new food" for
+   readings from your own sensor. */
+const OTHER_FOODS = {
+  Milk:         { icon:'🥛', t: 4,  h: 80, eco2: 430, tvoc: 40  },
+  Eggs:         { icon:'🥚', t: 4,  h: 75, eco2: 420, tvoc: 35  },
+  Bread:        { icon:'🍞', t: 21, h: 50, eco2: 470, tvoc: 110 },
+  Cheese:       { icon:'🧀', t: 4,  h: 80, eco2: 440, tvoc: 90  },
+  'Cooked rice':{ icon:'🍚', t: 4,  h: 80, eco2: 460, tvoc: 60  },
+};
+
+const SERVICE_UUID = '6b7ce6c0-1a2d-4e3f-9c1a-2f6d8e0b7a11';
+const CHAR_UUID    = '6b7ce6c1-1a2d-4e3f-9c1a-2f6d8e0b7a11';
+
+const LABEL = { fresh:'Fresh', caution:'About to spoil', spoiled:'Spoiled', calibrating:'Calibrating' };
+const colorFor = (s) => ({ fresh:'#1fae8f', caution:'#f0a02e', spoiled:'#e0506a', calibrating:'#9fd3f3' }[s] || '#9fd3f3');
+
+let mode = 'live';              // 'live' = device's own calibration, 'preset' = compare to preset
+let activeFoodName = null;
+let activePreset = null;
+let activeFoodRef = null;      // which food the console is showing, so it can be re-recorded
+let bleDevice, bleServer, bleChar;
+let scoreHistory = [];
+
+const connectBtn = document.getElementById('connectBtn');
+const statusLine = document.getElementById('statusLine');
+const logBody    = document.getElementById('logBody');
+
+/* ============================================================
+   SOUND EFFECTS (synthesised with Web Audio, no files needed)
+   ============================================================ */
+let audioCtx = null;
+let soundOn = true;
+try { soundOn = localStorage.getItem('fc_sound') !== 'off'; } catch (e) {}
+
+function getCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function tone(freq, start, dur, type = 'sine', vol = 0.06) {
+  if (!soundOn) return;
+  const c = getCtx(); if (!c) return;
+  const t0 = c.currentTime + start;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(c.destination);
+  o.start(t0); o.stop(t0 + dur + 0.03);
+}
+const sfx = {
+  click()   { tone(880, 0, 0.08, 'sine', 0.05); tone(1320, 0.04, 0.09, 'sine', 0.035); },
+  select()  { tone(660, 0, 0.09, 'triangle', 0.06); tone(990, 0.07, 0.12, 'triangle', 0.05); tone(1320, 0.14, 0.18, 'sine', 0.04); },
+  back()    { tone(740, 0, 0.08, 'sine', 0.05); tone(494, 0.06, 0.13, 'sine', 0.045); },
+  connect() { tone(523, 0, 0.12, 'sine', 0.06); tone(659, 0.1, 0.12, 'sine', 0.06); tone(784, 0.2, 0.22, 'sine', 0.06); },
+  warn()    { tone(784, 0, 0.15, 'triangle', 0.08); tone(784, 0.22, 0.15, 'triangle', 0.08); tone(988, 0.44, 0.28, 'triangle', 0.08); },
+  spoiled() { tone(440, 0, 0.2, 'sawtooth', 0.05); tone(330, 0.2, 0.2, 'sawtooth', 0.05); tone(247, 0.4, 0.38, 'sawtooth', 0.05); },
+  error()   { tone(220, 0, 0.2, 'square', 0.04); },
+};
+
+// One listener gives every button a click sound; buttons can pick a variant via data-sfx.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('button');
+  if (!el || el.disabled) return;
+  const kind = el.dataset.sfx;
+  (sfx[kind] || sfx.click)();
+});
+
+const soundToggle = document.getElementById('soundToggle');
+function paintSoundToggle() { soundToggle.textContent = soundOn ? '🔊' : '🔇'; }
+soundToggle.addEventListener('click', () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem('fc_sound', soundOn ? 'on' : 'off'); } catch (e) {}
+  paintSoundToggle();
+});
+paintSoundToggle();
+
+/* ---------- Falling snowflakes (decor) ---------- */
+(function makeFlakes() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const holder = document.getElementById('flakes');
+  for (let i = 0; i < 16; i++) {
+    const s = document.createElement('span');
+    s.className = 'flake';
+    s.textContent = '❄';
+    s.style.left = (Math.random() * 100) + '%';
+    s.style.fontSize = (10 + Math.random() * 16) + 'px';
+    s.style.opacity = (0.25 + Math.random() * 0.35).toFixed(2);
+    s.style.animationDuration = (14 + Math.random() * 18) + 's';
+    s.style.animationDelay = (-Math.random() * 30) + 's';
+    holder.appendChild(s);
+  }
+})();
+
+/* ============================================================
+   MENUS
+   ============================================================ */
+const CATEGORIES = {
+  fruit: { data: FRUITS,      screen: 'screenFruitList', grid: 'fruitGrid', noun: 'fruit' },
+  veg:   { data: VEGETABLES,  screen: 'screenVegList',   grid: 'vegGrid',   noun: 'vegetable' },
+  food:  { data: OTHER_FOODS, screen: 'screenFoodList',  grid: 'foodGrid',  noun: 'food' },
+};
+
+/* ---------- Foods you record yourself (kept in this browser only) ---------- */
+const STORE_KEY = 'fc_custom_foods_v1';
+const CUSTOM_ICON = '🍽️';
+const MIN_ECO2_RISE = 30;    // ppm: spoiled must beat fresh by this much...
+const MIN_TVOC_RISE = 15;    // ...or by this many ppb, in at least one of the two
+
+function validStage(s) { return !!s && ['t', 'h', 'eco2', 'tvoc'].every(k => Number.isFinite(s[k])); }
+function loadCustomFoods() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(f => f && typeof f.id === 'string' && typeof f.name === 'string' && CATEGORIES[f.category] && validStage(f.fresh))
+      .map(f => ({ id: f.id, name: f.name, category: f.category, fresh: f.fresh, spoiled: validStage(f.spoiled) ? f.spoiled : null,
+                   base: typeof f.base === 'string' ? f.base : undefined, icon: typeof f.icon === 'string' ? f.icon : undefined }));
+  } catch (e) { return []; }
+}
+let customFoods = loadCustomFoods();
+function persistCustomFoods() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(customFoods)); return true; } catch (e) { return false; }
+}
+const isComplete = (f) => !!(f.fresh && f.spoiled);
+const findCustom = (id) => customFoods.find(f => f.id === id) || null;
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderList(category) {
+  const cfg = CATEGORIES[category];
+  const grid = document.getElementById(cfg.grid);
+  grid.innerHTML = '';
+
+  const addWithDelete = (btn, title, label, onDelete) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'card-wrap';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'card-del';
+    del.textContent = '×';
+    del.title = title;
+    del.setAttribute('aria-label', label);
+    del.onclick = (e) => { e.stopPropagation(); onDelete(); };
+    wrap.append(btn, del);
+    grid.appendChild(wrap);
+  };
+
+  // Built-in foods. If you recorded your own values for one, those replace the defaults.
+  Object.entries(cfg.data).forEach(([name, preset]) => {
+    const ov = customFoods.find(f => f.category === category && f.base === name);
+    const btn = document.createElement('button');
+    btn.className = 'choice-card';
+    btn.dataset.sfx = 'select';
+    if (ov && isComplete(ov)) {
+      btn.innerHTML = `<span class="icon">${preset.icon}</span><span class="name">${esc(name)}</span>
+        <span class="desc">Using your recorded values</span>
+        <span class="badge ok">Fresh ✓ · Spoiled ✓</span>`;
+      btn.onclick = () => selectCustomFood(ov);
+      addWithDelete(btn, 'Reset to default values', 'Reset ' + name + ' to default values', () => {
+        if (confirm(`Reset "${name}" to its default values? Your recording will be deleted.`)) {
+          customFoods = customFoods.filter(x => x.id !== ov.id);
+          persistCustomFoods();
+          renderList(category);
+        }
+      });
+      return;
+    }
+    btn.innerHTML = `<span class="icon">${preset.icon}</span><span class="name">${esc(name)}</span>
+      <span class="desc">~${preset.t}°C · ${preset.h}% RH typical</span>
+      ${ov ? '<span class="badge todo">Your spoiled stage still to record</span>' : ''}`;
+    btn.onclick = () => selectFood(name, preset, category);
+    grid.appendChild(btn);
+  });
+
+  // Foods recorded from scratch
+  customFoods.filter(f => f.category === category && !f.base).forEach((f) => {
+    const done = isComplete(f);
+    const btn = document.createElement('button');
+    btn.className = 'choice-card';
+    btn.dataset.sfx = 'select';
+    btn.innerHTML = `<span class="icon">${esc(f.icon || CUSTOM_ICON)}</span><span class="name">${esc(f.name)}</span>
+      <span class="desc">Recorded by you${done ? '' : ' · tap to finish'}</span>
+      <span class="badge ${done ? 'ok' : 'todo'}">${done ? 'Fresh ✓ · Spoiled ✓' : 'Fresh ✓ · Spoiled still to record'}</span>`;
+    btn.onclick = () => done ? selectCustomFood(f) : openRecorder(category, f.id);
+    addWithDelete(btn, 'Delete this food', 'Delete ' + f.name, () => {
+      if (confirm(`Delete "${f.name}" and its recorded values?`)) {
+        customFoods = customFoods.filter(x => x.id !== f.id);
+        persistCustomFoods();
+        renderList(category);
+      }
+    });
+  });
+
+  const recBtn = document.createElement('button');
+  recBtn.className = 'choice-card record';
+  recBtn.dataset.sfx = 'select';
+  recBtn.innerHTML = `<span class="icon">+</span><span><span class="name">Record a new food</span>
+    <span class="desc">Measure a ${cfg.noun} yourself, fresh and spoiled, and add it to this list.</span></span>`;
+  recBtn.onclick = () => openRecorder(category);
+  grid.appendChild(recBtn);
+
+  const customBtn = document.createElement('button');
+  customBtn.className = 'choice-card custom';
+  customBtn.dataset.sfx = 'select';
+  customBtn.innerHTML = `<span class="icon">✎</span><span><span class="name">Custom</span>
+    <span class="desc">Not listed? Run the sensor's own live calibration instead.</span></span>`;
+  customBtn.onclick = () => selectCustom(category);
+  grid.appendChild(customBtn);
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo({ top: 0 });
+}
+function goToMenu() { showScreen('screenMenu'); }
+function goToList(category) { renderList(category); showScreen(CATEGORIES[category].screen); }
+
+function setMetric(id, text, unit) { document.getElementById(id).innerHTML = text + '<span class="unit">' + unit + '</span>'; }
+
+function resetConsoleState() {
+  scoreHistory = [];
+  logBody.innerHTML = '';
+  pendingStatus = null; pendingCount = 0; alertedRank = 0;
+  document.getElementById('gaugeStatus').textContent = '— — —';
+  document.getElementById('gaugeStatus').style.color = '';
+  document.getElementById('scoreNum').textContent = 'score: —';
+  setMetric('valTemp', '—', '°C'); setMetric('valHum', '—', '%RH');
+  setMetric('valEco2', '—', 'ppm'); setMetric('valTvoc', '—', 'ppb');
+  drawGauge(0, colorFor('calibrating'));
+  drawSparkline();
+  renderMyValues();
+}
+
+function selectFood(name, preset, category) {
+  mode = 'preset'; activeFoodName = name; activePreset = preset;
+  const ov = customFoods.find(f => f.category === category && f.base === name);
+  activeFoodRef = { category, base: name, id: ov ? ov.id : null };
+  showScreen('screenConsole');
+  document.getElementById('foodBadge').textContent = `${preset.icon} ${name} · preset comparison`;
+  document.getElementById('refTemp').textContent = `typical ~${preset.t}°C`;
+  document.getElementById('refHum').textContent  = `typical ~${preset.h}%RH`;
+  document.getElementById('refEco2').textContent = `typical ~${preset.eco2}ppm`;
+  document.getElementById('refTvoc').textContent = `typical ~${preset.tvoc}ppb`;
+  resetConsoleState();
+}
+function selectCustom(category) {
+  mode = 'live'; activeFoodName = null; activePreset = null; activeFoodRef = null;
+  showScreen('screenConsole');
+  document.getElementById('foodBadge').textContent = (category === 'other' ? 'Other' : 'Custom') + ' · live calibration (~3 min warm-up)';
+  ['refTemp','refHum','refEco2','refTvoc'].forEach(id => document.getElementById(id).textContent = '');
+  resetConsoleState();
+}
+
+function selectCustomFood(f) {
+  const icon = f.icon || CUSTOM_ICON;
+  mode = 'stages'; activeFoodName = f.name;
+  activePreset = { icon, fresh: f.fresh, spoiled: f.spoiled };
+  activeFoodRef = { category: f.category, base: f.base || null, id: f.id };
+  showScreen('screenConsole');
+  document.getElementById('foodBadge').textContent = `${icon} ${f.name} · your recorded presets`;
+  document.getElementById('refTemp').textContent = `fresh ${f.fresh.t} · spoiled ${f.spoiled.t} °C`;
+  document.getElementById('refHum').textContent  = `fresh ${f.fresh.h} · spoiled ${f.spoiled.h} %RH`;
+  document.getElementById('refEco2').textContent = `fresh ${f.fresh.eco2} · spoiled ${f.spoiled.eco2} ppm`;
+  document.getElementById('refTvoc').textContent = `fresh ${f.fresh.tvoc} · spoiled ${f.spoiled.tvoc} ppb`;
+  resetConsoleState();
+}
+
+/* ============================================================
+   ALERTS: in-page toast + vibration + system notification
+   ============================================================ */
+let swReg = null;
+let alertsEnabled = ('Notification' in window) && Notification.permission === 'granted';
+
+// A service worker lets phones show real notifications (Android needs it). It only
+// registers when the page is served over http(s); opening the file from disk skips it.
+(async function initSW() {
+  if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
+  try {
+    await navigator.serviceWorker.register('sw.js');
+    swReg = await navigator.serviceWorker.ready;
+  } catch (e) { console.warn('Service worker unavailable:', e); }
+})();
+
+const alertBtn = document.getElementById('alertBtn');
+const alertHint = document.getElementById('alertHint');
+
+function updateAlertUI() {
+  if (!('Notification' in window)) {
+    alertBtn.textContent = '🔕 Alerts unavailable'; alertBtn.disabled = true;
+    alertHint.textContent = "This browser can't show notifications, but banners and sounds still work.";
+    return;
+  }
+  const p = Notification.permission;
+  alertBtn.classList.toggle('on', p === 'granted' && alertsEnabled);
+  if (p === 'granted') {
+    alertBtn.textContent = alertsEnabled ? '🔔 Alerts on' : '🔕 Alerts off';
+    alertHint.textContent = alertsEnabled
+      ? "You'll be notified when food is about to spoil and when it has spoiled."
+      : 'Notifications are paused.';
+  } else if (p === 'denied') {
+    alertBtn.textContent = '🔕 Alerts blocked';
+    alertHint.textContent = "Notifications are blocked for this page. Allow them in your browser's site settings, then reload.";
+  } else {
+    alertBtn.textContent = '🔔 Enable alerts';
+    alertHint.textContent = 'Turn on to get a notification when food is about to spoil or has spoiled.';
+  }
+}
+alertBtn.addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    const res = await Notification.requestPermission();
+    alertsEnabled = (res === 'granted');
+    if (alertsEnabled) showToast('fresh', 'Alerts enabled', "You'll be notified when your food needs attention.");
+  } else if (Notification.permission === 'granted') {
+    alertsEnabled = !alertsEnabled;
+  }
+  updateAlertUI();
+});
+updateAlertUI();
+
+let toastTimer = null;
+function showToast(kind, title, body) {
+  const t = document.getElementById('toast');
+  t.className = 'toast ' + kind;
+  document.getElementById('toastTitle').textContent = title;
+  document.getElementById('toastBody').textContent = body;
+  void t.offsetWidth;                 // restart the transition
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 9000);
+}
+document.getElementById('toast').addEventListener('click', () => document.getElementById('toast').classList.remove('show'));
+
+function makeIcon(emoji) {
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const x = c.getContext('2d');
+    x.fillStyle = '#d9eefa'; x.beginPath(); x.arc(64, 64, 64, 0, Math.PI * 2); x.fill();
+    x.font = '72px serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(emoji, 64, 70);
+    return c.toDataURL('image/png');
+  } catch (e) { return undefined; }
+}
+
+async function showSystemNotification(title, body, tag, emoji) {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !alertsEnabled) return false;
+  const icon = makeIcon(emoji);
+  const opts = { body, tag, icon, badge: icon, vibrate: [200, 100, 200, 100, 300], renotify: true, requireInteraction: true };
+  try {
+    if (swReg && swReg.showNotification) { await swReg.showNotification(title, opts); return true; }
+  } catch (e) { console.warn('SW notification failed:', e); }
+  try { new Notification(title, { body, tag, icon }); return true; }
+  catch (e) { console.warn('Notification constructor failed:', e); }
+  return false;
+}
+
+function fireAlert(status, isTest = false) {
+  const name = activeFoodName || 'Your food';
+  const emoji = activePreset ? activePreset.icon : '🥗';
+  let title, body;
+  if (status === 'caution') {
+    title = `${name}: about to spoil`;
+    body  = 'Freshness is running out. Eat it soon!';
+    sfx.warn();
+  } else {
+    title = `${name}: spoiled`;
+    body  = 'It may no longer be safe to eat. Please throw it out.';
+    sfx.spoiled();
+  }
+  if (isTest) title = '[Test] ' + title;
+  showToast(status, (status === 'caution' ? '⏰ ' : '🗑️ ') + title, body);
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+  showSystemNotification(title, body, 'fc-' + status, emoji);
+}
+document.getElementById('testAlertBtn').addEventListener('click', () => {
+  fireAlert('caution', true);
+  setTimeout(() => fireAlert('spoiled', true), 4500);
+});
+
+/* Alert only when a worse status is confirmed for several readings in a row,
+   so a single noisy reading can't trigger a notification, and each stage fires once. */
+const RANK = { fresh: 0, caution: 1, spoiled: 2 };
+const CONFIRM_READINGS = 3;
+let pendingStatus = null, pendingCount = 0, alertedRank = 0;
+
+function evaluateAlerts(status) {
+  if (!(status in RANK)) return;                       // ignore "calibrating"
+  if (status === pendingStatus) pendingCount++; else { pendingStatus = status; pendingCount = 1; }
+  if (pendingCount < CONFIRM_READINGS) return;
+  const r = RANK[status];
+  if (r === 0) { alertedRank = 0; return; }            // back to fresh: re-arm alerts
+  if (r > alertedRank) { alertedRank = r; fireAlert(status); }
+}
+
+/* ============================================================
+   BLUETOOTH
+   ============================================================ */
+let bleConnected = false;
+const recConnectBtn = document.getElementById('recConnectBtn');
+const recStatus = document.getElementById('recStatus');
+
+function paintConnection(state, message) {
+  const text = state === 'connected' ? 'Connected · ' + ((bleDevice && bleDevice.name) || 'sensor')
+             : state === 'scanning'  ? 'Scanning…' : 'Connect to sensor';
+  [connectBtn, recConnectBtn].forEach(b => {
+    b.textContent = text;
+    b.classList.toggle('connected', state === 'connected');
+    b.classList.toggle('error', state === 'error');
+  });
+  statusLine.textContent = message;
+  recStatus.textContent = message;
+}
+
+async function connectSensor() {
+  if (bleConnected) return;
+  if (!navigator.bluetooth) {
+    paintConnection('error', 'Web Bluetooth is not supported in this browser. Use Chrome or Edge.');
+    sfx.error();
+    return;
+  }
+  try {
+    paintConnection('scanning', 'Choose your sensor in the popup…');
+    bleDevice = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE_UUID] }] });
+    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+    paintConnection('scanning', 'Connecting…');
+    bleServer = await bleDevice.gatt.connect();
+    const service = await bleServer.getPrimaryService(SERVICE_UUID);
+    bleChar = await service.getCharacteristic(CHAR_UUID);
+    await bleChar.startNotifications();
+    bleChar.addEventListener('characteristicvaluechanged', onData);
+
+    bleConnected = true;
+    paintConnection('connected', 'Receiving live readings every ~5 seconds.');
+    sfx.connect();
+    if (rec.active) renderRecorder();
+  } catch (err) {
+    console.error(err);
+    bleConnected = false;
+    paintConnection('error', 'Connection failed: ' + err.message);
+    sfx.error();
+  }
+}
+connectBtn.addEventListener('click', connectSensor);
+recConnectBtn.addEventListener('click', connectSensor);
+
+function onDisconnected() {
+  bleConnected = false;
+  paintConnection('idle', 'Disconnected. Click connect to reconnect.');
+  if (rec.active) {
+    if (rec.phase === 'capturing') {
+      rec.phase = 'idle'; rec.samples = [];
+      setRecMsg('The sensor disconnected, so the recording was stopped. Reconnect and start again.', 'err');
+    }
+    renderRecorder();
+  }
+}
+
+/* Preset scoring mirrors the firmware's logic, but compares against the chosen food's preset */
+function scoreAgainstPreset(d, preset) {
+  const eco2Penalty = Math.min(Math.max((d.eco2 - preset.eco2) / 8, 0), 50);
+  const tvocPenalty = Math.min(Math.max((d.tvoc - preset.tvoc) / 5, 0), 40);
+  const humPenalty  = Math.min(Math.max((d.h - preset.h - 10) / 2, 0), 10);
+  const score = Math.round(Math.min(Math.max(100 - eco2Penalty - tvocPenalty - humPenalty, 0), 100));
+  let status = 'spoiled';
+  if (score >= 75) status = 'fresh'; else if (score >= 45) status = 'caution';
+  return { score, status };
+}
+
+/* Score for foods you recorded: how far along the fresh -> spoiled path the live readings are.
+   0 = same as your fresh recording, 1 = same as your spoiled recording (eCO2 and TVOC only).
+   The curve is bent so a score of 75 / 45 lines up with the dashed lines on the chart. */
+function scoreFromStages(d, f, s) {
+  const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
+  const parts = [];
+  if (s.eco2 - f.eco2 >= MIN_ECO2_RISE) parts.push(clamp01((d.eco2 - f.eco2) / (s.eco2 - f.eco2)));
+  if (s.tvoc - f.tvoc >= MIN_TVOC_RISE) parts.push(clamp01((d.tvoc - f.tvoc) / (s.tvoc - f.tvoc)));
+  const p = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
+  const curve = [[0, 100], [0.25, 75], [0.7, 45], [1, 0]];
+  let score = 0;
+  for (let i = 1; i < curve.length; i++) {
+    if (p <= curve[i][0]) {
+      const [x0, y0] = curve[i - 1], [x1, y1] = curve[i];
+      score = y0 + (y1 - y0) * ((p - x0) / (x1 - x0));
+      break;
+    }
+  }
+  score = Math.round(score);
+  let status = 'spoiled';
+  if (score >= 75) status = 'fresh'; else if (score >= 45) status = 'caution';
+  return { score, status };
+}
+
+function onData(event) {
+  let d;
+  try { d = JSON.parse(new TextDecoder('utf-8').decode(event.target.value)); }
+  catch (e) { console.warn('Bad packet'); return; }
+
+  lastPacket = d;
+  if (rec.active) { handleRecorderPacket(d); return; }
+
+  setMetric('valTemp', d.t.toFixed(1), '°C');
+  setMetric('valHum',  d.h.toFixed(1), '%RH');
+  setMetric('valEco2', d.eco2, 'ppm');
+  setMetric('valTvoc', d.tvoc, 'ppb');
+
+  let score, status, scored;
+  if (mode === 'stages' && activePreset) {
+    const r = scoreFromStages(d, activePreset.fresh, activePreset.spoiled);
+    score = r.score; status = r.status; scored = true;
+  } else if (mode === 'preset' && activePreset) {
+    const r = scoreAgainstPreset(d, activePreset);
+    score = r.score; status = r.status; scored = true;
+  } else {
+    score = d.score; status = d.ready ? d.status : 'calibrating'; scored = !!d.ready;
+  }
+
+  const gs = document.getElementById('gaugeStatus');
+  gs.textContent = LABEL[status];
+  gs.style.color = status === 'calibrating' ? '' : colorFor(status);
+  document.getElementById('scoreNum').textContent = scored ? ('score: ' + score + ' / 100') : 'warming up sensor…';
+  drawGauge(scored ? score : 0, colorFor(status));
+
+  scoreHistory.push({ score: scored ? score : null, status });
+  if (scoreHistory.length > 60) scoreHistory.shift();
+  drawSparkline();
+
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  row.innerHTML = `<span>${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}</span>
+    <span>${d.t.toFixed(1)}°C · ${d.h.toFixed(1)}% · eCO2 ${d.eco2} · TVOC ${d.tvoc}</span>
+    <span class="tag ${status}">${LABEL[status]}</span>`;
+  logBody.prepend(row);
+  while (logBody.children.length > 50) logBody.removeChild(logBody.lastChild);
+
+  evaluateAlerts(status);
+}
+
+/* ---------- "Your recorded values" panel under the console ---------- */
+function renderMyValues() {
+  const panel = document.getElementById('myValuesPanel');
+  const actions = document.getElementById('myValuesActions');
+  actions.innerHTML = '';
+  if (!activeFoodRef || mode === 'live') { panel.hidden = true; return; }
+
+  const ref = activeFoodRef;
+  const food = ref.id ? findCustom(ref.id) : null;
+  const add = (label, cls, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn ' + cls; b.textContent = label; b.onclick = fn;
+    actions.appendChild(b);
+  };
+
+  let text;
+  if (!food) {
+    text = 'These are rough preset values. For better accuracy, record your own readings for this food: first fresh, then spoiled.';
+    add('Record my own values', 'btn-primary', () => openRecorder(ref.category, null, { base: ref.base, icon: activePreset && activePreset.icon, stage: 'fresh' }));
+  } else if (!isComplete(food)) {
+    text = 'Your fresh stage is saved. Record the spoiled stage to finish. Until then the preset values above are used.';
+    add('Record spoiled stage', 'btn-primary', () => openRecorder(ref.category, food.id, { stage: 'spoiled' }));
+  } else {
+    const f = food.fresh, s = food.spoiled;
+    text = `Fresh: ${f.t} °C · ${f.h} %RH · eCO2 ${f.eco2} ppm · TVOC ${f.tvoc} ppb\n` +
+           `Spoiled: ${s.t} °C · ${s.h} %RH · eCO2 ${s.eco2} ppm · TVOC ${s.tvoc} ppb`;
+    add('Re-record fresh stage', 'btn-ghost', () => openRecorder(ref.category, food.id, { stage: 'fresh' }));
+    add('Re-record spoiled stage', 'btn-ghost', () => openRecorder(ref.category, food.id, { stage: 'spoiled' }));
+    if (food.base) {
+      add('Reset to default values', 'btn-ghost', () => {
+        if (!confirm(`Reset "${food.base}" to its default values? Your recording will be deleted.`)) return;
+        customFoods = customFoods.filter(x => x.id !== food.id);
+        persistCustomFoods();
+        const preset = CATEGORIES[food.category].data[food.base];
+        if (preset) selectFood(food.base, preset, food.category); else goToList(food.category);
+      });
+    }
+  }
+  document.getElementById('myValuesText').textContent = text;
+  panel.hidden = false;
+}
+
+/* ============================================================
+   RECORD A NEW FOOD (fresh stage, then spoiled stage)
+   ============================================================ */
+const REC_SAMPLES = 12;                    // about a minute of readings per stage
+const rec = { active: false, category: 'fruit', foodId: null, base: null, icon: null, stage: 'fresh', phase: 'idle', samples: [], result: null };
+let lastPacket = null;
+const $ = (id) => document.getElementById(id);
+const avg = (arr, k) => arr.reduce((a, s) => a + s[k], 0) / arr.length;
+const cleanName = (raw) => String(raw).trim().replace(/\s+/g, ' ');
+
+function setRecMsg(text, kind) { const m = $('recMsg'); m.textContent = text || ''; m.className = 'rec-msg ' + (kind || ''); }
+
+function validateName(raw) {
+  const name = cleanName(raw), lower = name.toLowerCase();
+  if (!name) return 'Give the food a name first.';
+  if (name.length > 30) return 'Keep the name to 30 characters or fewer.';
+  const taken = Object.keys(CATEGORIES[rec.category].data).some(n => n.toLowerCase() === lower)
+             || customFoods.some(f => f.category === rec.category && f.name.toLowerCase() === lower);
+  return taken ? `There's already a "${name}" in this list. Pick a different name.` : null;
+}
+
+function openRecorder(category, foodId = null, opts = {}) {
+  const food = foodId ? findCustom(foodId) : null;
+  rec.active = true; rec.category = category; rec.foodId = food ? food.id : null;
+  rec.base = food ? null : (opts.base || null);          // set when recording own values for a built-in food
+  rec.icon = opts.icon || null;
+  rec.stage = opts.stage || (food && food.fresh ? 'spoiled' : 'fresh');
+  rec.phase = 'idle'; rec.samples = []; rec.result = null;
+  $('recName').value = food ? food.name : (rec.base || '');
+  setRecMsg('');
+  showScreen('screenRecord');
+  renderRecorder();
+}
+function leaveRecorder() {
+  rec.active = false; rec.phase = 'idle'; rec.samples = [];
+  goToList(rec.category);
+}
+
+function renderRecorder() {
+  const food = rec.foodId ? findCustom(rec.foodId) : null;
+  const freshDone = !!(food && food.fresh), spoiledDone = !!(food && food.spoiled);
+  const p = rec.phase;
+  const finished = p === 'stageSaved' || p === 'complete';
+  const label = food ? food.name : (rec.base || '');
+
+  const c1 = (rec.stage === 'fresh' && !finished) ? 'current' : freshDone ? 'done' : '';
+  const c2 = ((rec.stage === 'spoiled' && p !== 'complete') || (rec.stage === 'fresh' && p === 'stageSaved')) ? 'current'
+           : spoiledDone ? 'done' : '';
+  $('recStep1').className = 'step-pill ' + c1;
+  $('recStep2').className = 'step-pill ' + c2;
+  $('recStep1Num').textContent = c1 === 'done' ? '✓' : '1';
+  $('recStep2Num').textContent = c2 === 'done' ? '✓' : '2';
+
+  $('recTitle').textContent = label || 'Record a new food';
+  $('recBackLabel').textContent = 'Back to ' + CATEGORIES[rec.category].noun + ' list';
+  const nameEl = $('recName');
+  if (label) nameEl.value = label;
+  nameEl.disabled = !!food || !!rec.base || p === 'capturing' || p === 'review';
+
+  const help = {
+    fresh:   'Stage 1 of 2 · Fresh. Put the fresh food in the container, close the lid and leave it for about 10 minutes so the air settles. The sensor should have been powered on for at least 3 minutes. Then press Start recording. It takes about a minute.',
+    spoiled: 'Stage 2 of 2 · Spoiled. Use the same kind of food in the same container once it has clearly spoiled (never taste it to check). Close the lid for about 10 minutes at the same temperature as before, then press Start recording.',
+  };
+  let text = help[rec.stage];
+  if (food && food[rec.stage] && (p === 'idle' || p === 'capturing' || p === 'review')) {
+    text += ' These new readings will replace the ones you saved before.';
+  }
+  if (p === 'capturing') text = 'Recording. Keep the lid closed and the container still until the bar fills.';
+  if (p === 'review') text = 'Check the averages below. Save them, or redo the recording if anything looked off.';
+  if (p === 'stageSaved') text = 'Fresh stage saved. Spoiling usually takes days, so you can finish later: the food waits in the list marked "Spoiled still to record". Or record the spoiled stage now if you already have spoiled food.';
+  if (p === 'complete') text = `Both stages saved. "${label || 'This food'}" will now use your recorded values.`;
+  $('recHelp').textContent = text;
+
+  // live tiles
+  const L = lastPacket;
+  $('rvT').innerHTML    = L ? L.t.toFixed(1) + '<small>°C</small>'  : '—<small>°C</small>';
+  $('rvH').innerHTML    = L ? L.h.toFixed(1) + '<small>%RH</small>' : '—<small>%RH</small>';
+  $('rvEco2').innerHTML = L ? L.eco2 + '<small>ppm</small>'         : '—<small>ppm</small>';
+  $('rvTvoc').innerHTML = L ? L.tvoc + '<small>ppb</small>'         : '—<small>ppb</small>';
+
+  // progress
+  const showProgress = p === 'capturing' || p === 'review';
+  $('recProgressWrap').hidden = !showProgress;
+  if (showProgress) {
+    const n = p === 'review' ? REC_SAMPLES : rec.samples.length;
+    $('recBar').style.width = Math.round(100 * n / REC_SAMPLES) + '%';
+    $('recProgressText').textContent = p === 'review' ? 'Recording finished.'
+      : n > 0 ? `${n} of ${REC_SAMPLES} readings`
+      : (L && !L.ready) ? 'The sensor is still warming up (about 3 minutes after power-on). Waiting…'
+      : 'Waiting for the first reading…';
+  }
+
+  // result tiles
+  const showResult = !!rec.result && (p === 'review' || finished);
+  $('recResultWrap').hidden = !showResult;
+  if (showResult) {
+    const r = rec.result;
+    $('recResultLabel').textContent = p === 'review' ? `Average of ${r.n} readings (not saved yet)` : 'Saved values for this stage';
+    $('rrT').textContent = r.t + ' °C'; $('rrH').textContent = r.h + ' %RH';
+    $('rrEco2').textContent = r.eco2 + ' ppm'; $('rrTvoc').textContent = r.tvoc + ' ppb';
+  }
+
+  // buttons
+  const show = (id, on) => { $(id).hidden = !on; };
+  show('recStart', p === 'idle');
+  show('recCancel', p === 'capturing');
+  show('recSave', p === 'review');   show('recRedo', p === 'review');
+  show('recNow', p === 'stageSaved'); show('recLater', p === 'stageSaved');
+  show('recOpen', p === 'complete'); show('recDone', p === 'complete');
+  $('recStart').disabled = !bleConnected;
+  $('recStart').textContent = bleConnected ? 'Start recording' : 'Connect the sensor to start';
+}
+
+function startRecording() {
+  if (!bleConnected) { setRecMsg('Connect to the sensor first.', 'err'); return; }
+  if (!rec.foodId && !rec.base) {
+    const err = validateName($('recName').value);
+    if (err) { setRecMsg(err, 'err'); $('recName').focus(); return; }
+  }
+  rec.samples = []; rec.result = null; rec.phase = 'capturing';
+  setRecMsg('');
+  renderRecorder();
+}
+
+function handleRecorderPacket(d) {
+  if (rec.phase === 'capturing' && d.ready && d.eco2 > 0) {
+    rec.samples.push({ t: d.t, h: d.h, eco2: d.eco2, tvoc: d.tvoc });
+    if (rec.samples.length >= REC_SAMPLES) { finishRecording(); return; }
+  }
+  renderRecorder();
+}
+
+function finishRecording() {
+  const s = rec.samples;
+  rec.result = {
+    t: +avg(s, 't').toFixed(1), h: +avg(s, 'h').toFixed(1),
+    eco2: Math.round(avg(s, 'eco2')), tvoc: Math.round(avg(s, 'tvoc')), n: s.length, at: Date.now(),
+  };
+  const e = s.map(x => x.eco2);
+  const unsteady = Math.max(...e) - Math.min(...e) > 150;
+  rec.phase = 'review';
+  setRecMsg(unsteady ? 'The eCO2 readings moved around quite a bit. For a cleaner result, redo with the lid closed and the container still.' : '', 'err');
+  sfx.connect();
+  renderRecorder();
+}
+
+function saveStage() {
+  if (!rec.result) return;
+  let food = rec.foodId ? findCustom(rec.foodId) : null;
+
+  if (!food) {
+    // first save of a brand-new food (or of your own values for a built-in one): always the fresh stage
+    if (rec.stage !== 'fresh') return;
+    let name = rec.base;
+    if (!name) {
+      const err = validateName($('recName').value);
+      if (err) { setRecMsg(err, 'err'); return; }
+      name = cleanName($('recName').value);
+    }
+    food = { id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+             name, category: rec.category, fresh: rec.result, spoiled: null };
+    if (rec.base) { food.base = rec.base; food.icon = rec.icon || undefined; }
+    customFoods.push(food);
+    rec.foodId = food.id;
+  } else {
+    // saving or replacing one stage: the spoiled readings must still clearly beat the fresh ones
+    const fresh = rec.stage === 'fresh' ? rec.result : food.fresh;
+    const spoiled = rec.stage === 'spoiled' ? rec.result : food.spoiled;
+    if (fresh && spoiled) {
+      const eRise = spoiled.eco2 - fresh.eco2, vRise = spoiled.tvoc - fresh.tvoc;
+      if (eRise < MIN_ECO2_RISE && vRise < MIN_TVOC_RISE) {
+        const nums = `(fresh eCO2 ${fresh.eco2} ppm and TVOC ${fresh.tvoc} ppb, spoiled eCO2 ${spoiled.eco2} ppm and TVOC ${spoiled.tvoc} ppb)`;
+        setRecMsg(rec.stage === 'spoiled'
+          ? `These spoiled readings aren't clearly higher than the fresh ones ${nums}. The food may not be spoiled enough yet, or the lid wasn't closed long enough. Wait a bit and record again.`
+          : `These fresh readings are too close to your saved spoiled ones ${nums}. Check the food is really fresh and the lid has been closed for a while, then record again.`, 'err');
+        rec.phase = 'idle'; rec.result = null; rec.samples = [];
+        renderRecorder();
+        return;
+      }
+    }
+    food[rec.stage] = rec.result;
+  }
+  rec.phase = isComplete(food) ? 'complete' : 'stageSaved';
+
+  const ok = persistCustomFoods();
+  setRecMsg(ok ? '' : "This browser wouldn't let the page save data, so the food will be forgotten when you close the page.", ok ? '' : 'err');
+  sfx.connect();
+  renderRecorder();
+}
+
+function redoStage() { rec.samples = []; rec.result = null; rec.phase = 'idle'; setRecMsg(''); renderRecorder(); }
+function recordSpoiledNow() { rec.stage = 'spoiled'; redoStage(); }
+function openRecordedFood() {
+  const f = rec.foodId ? findCustom(rec.foodId) : null;
+  rec.active = false; rec.phase = 'idle';
+  if (f && isComplete(f)) selectCustomFood(f); else goToList(rec.category);
+}
+
+$('recStart').addEventListener('click', startRecording);
+$('recCancel').addEventListener('click', redoStage);
+$('recSave').addEventListener('click', saveStage);
+$('recRedo').addEventListener('click', redoStage);
+$('recNow').addEventListener('click', recordSpoiledNow);
+$('recLater').addEventListener('click', leaveRecorder);
+$('recOpen').addEventListener('click', openRecordedFood);
+$('recDone').addEventListener('click', leaveRecorder);
+
+/* ============================================================
+   DRAWING
+   ============================================================ */
+function drawGauge(score, color) {
+  const c = document.getElementById('gauge');
+  const W = 240, H = 150, dpr = window.devicePixelRatio || 1;
+  if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; c.style.width = W + 'px'; c.style.height = H + 'px'; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const cx = 120, cy = 128, r = 96;
+
+  ctx.lineCap = 'round'; ctx.lineWidth = 18;
+  ctx.strokeStyle = '#d9eefa';
+  ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI); ctx.stroke();
+
+  const frac = Math.max(0, Math.min(100, score)) / 100;
+  if (frac > 0) {
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, Math.PI + frac * Math.PI); ctx.stroke();
+  }
+
+  const ang = Math.PI + frac * Math.PI;
+  ctx.strokeStyle = '#0c3b73'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(ang) * (r - 26), cy + Math.sin(ang) * (r - 26)); ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#5a7fa3'; ctx.font = '11px ui-monospace, Consolas, monospace'; ctx.textAlign = 'center';
+  ctx.fillText('0', cx - r, cy + 24); ctx.fillText('100', cx + r, cy + 24);
+}
+
+function drawSparkline() {
+  const c = document.getElementById('sparkline');
+  const W = c.clientWidth || 600, H = 100, dpr = window.devicePixelRatio || 1;
+  c.width = W * dpr; c.height = H * dpr;
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const padX = 8, padY = 10;
+  const y = v => padY + (1 - v / 100) * (H - padY * 2);
+
+  ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(90,127,163,.45)'; ctx.fillStyle = 'rgba(90,127,163,.9)';
+  ctx.font = '10px ui-monospace, Consolas, monospace'; ctx.textAlign = 'right';
+  [75, 45].forEach(v => {
+    ctx.beginPath(); ctx.moveTo(padX, y(v)); ctx.lineTo(W - padX, y(v)); ctx.stroke();
+    ctx.fillText(String(v), W - padX, y(v) - 3);
+  });
+  ctx.setLineDash([]);
+
+  const pts = scoreHistory;
+  if (pts.length < 2) return;
+  const step = (W - padX * 2) / Math.max(pts.length - 1, 1);
+
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, '#5db8ee'); grad.addColorStop(1, '#0c3b73');
+  ctx.strokeStyle = grad; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  let started = false;
+  pts.forEach((p, i) => {
+    if (p.score === null) { started = false; return; }
+    const x = padX + i * step, yy = y(p.score);
+    if (!started) { ctx.moveTo(x, yy); started = true; } else ctx.lineTo(x, yy);
+  });
+  ctx.stroke();
+
+  const last = pts[pts.length - 1];
+  if (last.score !== null) {
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#0c3b73'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(padX + (pts.length - 1) * step, y(last.score), 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+}
+window.addEventListener('resize', drawSparkline);
+drawGauge(0, colorFor('calibrating'));
+</script>
+</body>
+</html>
